@@ -152,6 +152,18 @@ function usageRate(item) {
   return 0;
 }
 function groupKey(item){return `${item.category}::${item.itemName.trim().toLocaleLowerCase()}::${item.unit}`;}
+function groupUsageRate(items) {
+  const cycles=items.flatMap(item=>(item.cycleLog||[])).filter(x=>num(x.days)>0&&num(x.amount)>0);
+  if(cycles.length){
+    return cycles.reduce((sum,x)=>sum+num(x.amount),0)/cycles.reduce((sum,x)=>sum+num(x.days),0);
+  }
+  const uses=items.flatMap(item=>(item.usageLog||[])).filter(x=>Number(x.delta)<0).sort((a,b)=>a.t-b.t);
+  if(uses.length>=2){
+    const span=Math.max((uses.at(-1).t-uses[0].t)/DAY,1);
+    return uses.reduce((sum,x)=>sum+Math.abs(Number(x.delta)||0),0)/span;
+  }
+  return 0;
+}
 function inventoryGroups(){
   const map=new Map();
   state.items.filter(x=>x.type==='consumable').forEach(item=>{
@@ -163,7 +175,8 @@ function inventoryGroups(){
     const unopened=group.items.reduce((s,x)=>s+num(x.unopened),0);
     const inUse=group.items.reduce((s,x)=>s+num(x.inUse),0);
     const available=round(unopened+inUse);
-    const rate=group.items.reduce((s,x)=>s+usageRate(x),0);
+    // 以整個品項底下所有品牌的紀錄合併計算，不把品牌各自當成獨立品項。
+    const rate=groupUsageRate(group.items);
     const lead=Math.max(state.settings.leadDays,...group.items.map(x=>x.leadDays==null?0:num(x.leadDays)));
     const safetyManual=Math.max(0,...group.items.map(x=>num(x.threshold)));
     const recommended=rate?Math.max(safetyManual,Math.ceil(rate*(lead+num(state.settings.bufferDays))*10)/10):safetyManual;
@@ -193,12 +206,12 @@ function render(){
   const groups=inventoryGroups(), buys=shoppingEntries();
   root.innerHTML=`<main class="app">
     <header class="top">
-      <div class="topline"><div class="brand"><h1>我的庫存櫃</h1><p>看清楚家裡還有什麼，再決定要不要買</p></div>
+      <div class="topline"><div class="brand"><div class="brandline"><span class="brandmark">▣</span><div><h1>我的庫存櫃</h1><p>備品・追星・收藏，自動同步</p></div></div></div>
       <button id="sync" class="sync" onclick="App.openSettings()"></button></div>
       <nav class="nav">
-        <button class="${ui.tab==='inventory'?'active':''}" onclick="App.tab('inventory')">庫存</button>
+        <button class="${ui.tab==='inventory'?'active':''}" onclick="App.tab('inventory')">品項總覽</button>
         <button class="${ui.tab==='shopping'?'active':''}" onclick="App.tab('shopping')">需購買${buys.length?`<span class="count">${buys.length}</span>`:''}</button>
-        <button class="${ui.tab==='collectibles'?'active':''}" onclick="App.tab('collectibles')">收藏／願望</button>
+        <button class="${ui.tab==='collectibles'?'active':''}" onclick="App.tab('collectibles')">追星封面牆</button>
       </nav>
     </header>
     <section id="content">${renderContent(groups,buys)}</section>
@@ -214,13 +227,23 @@ function renderContent(groups,buys){
     const text=[g.itemName,...g.items.map(x=>x.productName)].join(' ').toLocaleLowerCase();
     return (!q||text.includes(q))&&(ui.category==='all'||g.category===ui.category);
   });
-  const total=groups.reduce((s,g)=>s+g.available,0);
+  const categoryCards=state.categories.map(cat=>{
+    const rows=groups.filter(g=>g.category===cat.id);
+    return {cat,rows,products:rows.reduce((sum,g)=>sum+g.items.length,0),urgent:rows.filter(g=>g.urgent).length};
+  }).filter(x=>x.rows.length);
   return `<div class="tools">
     <input class="search" placeholder="搜尋品項或商品名" value="${esc(ui.query)}" oninput="App.search(this.value)">
     <select class="select" onchange="App.filter(this.value)"><option value="all">全部類別</option>${state.categories.map(c=>`<option value="${esc(c.id)}" ${ui.category===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
     <button class="primary" onclick="App.edit()">＋ 新增商品</button>
   </div>
-  <div class="summary"><div class="stat"><b>${groups.length}</b><span>彙整品項</span></div><div class="stat"><b>${round(total)}</b><span>總可用數量</span></div><div class="stat"><b>${groups.filter(g=>g.urgent).length}</b><span>建議補貨</span></div></div>
+  <div class="summary"><div class="stat"><b>${groups.length}</b><span>彙整品項</span></div><div class="stat"><b>${groups.reduce((sum,g)=>sum+g.items.length,0)}</b><span>品牌／商品紀錄</span></div><div class="stat"><b>${groups.filter(g=>g.urgent).length}</b><span>建議補貨品項</span></div></div>
+  <section class="category-overview">
+    <div class="section-title"><div><b>分類總覽</b><span>點選分類查看裡面的所有品項</span></div><button class="linkbtn" onclick="App.filter('all')">顯示全部</button></div>
+    <div class="category-grid">${categoryCards.map(({cat,rows,products,urgent})=>`<button class="category-card ${ui.category===cat.id?'selected':''}" style="--cat:${esc(cat.color)}" onclick="App.filter('${cat.id}')">
+      <span class="category-dot"></span><span class="category-name">${esc(cat.name)}</span><b>${rows.length} 個品項</b><small>${products} 個品牌／商品${urgent?`・${urgent} 個需補貨`:''}</small>
+    </button>`).join('')}</div>
+  </section>
+  <div class="section-title inventory-title"><div><b>${ui.category==='all'?'全部品項':esc(state.categories.find(c=>c.id===ui.category)?.name||'品項')}</b><span>同品項的不同品牌會彙整在一起</span></div></div>
   <div class="groups">${filtered.length?filtered.map(renderGroup).join(''):'<div class="empty">找不到符合的品項</div>'}</div>`;
 }
 function renderGroup(group){
@@ -252,9 +275,20 @@ function renderShopping(entries){
   }).join(''):'<div class="empty">目前沒有需要購買的品項 🎉<br>先把家裡的用完再買。</div>'}</div>`;
 }
 function renderCollectibles(){
-  const rows=state.items.filter(x=>x.type==='collectible').filter(x=>!ui.query||String(x.name).includes(ui.query));
-  return `<div class="tools"><input class="search" placeholder="搜尋收藏／願望" value="${esc(ui.query)}" oninput="App.search(this.value)"><button class="primary" onclick="App.editCollectible()">＋ 新增</button></div>
-  <div class="collect-grid">${rows.length?rows.map(x=>`<article class="collect"><h3>${esc(x.name)}</h3><div class="sub">${x.status==='wishlist'?'願望清單':'已擁有'}${x.artist?`・${esc(x.artist)}`:''}</div>${x.price?`<p class="price">NT$ ${num(x.price).toLocaleString()}</p>`:''}<p>${esc(x.note||'')}</p><div class="actions"><button class="ghost small" onclick="App.editCollectible('${x.id}')">編輯</button></div></article>`).join(''):'<div class="empty">尚無收藏或願望項目</div>'}</div>`;
+  const q=ui.query.trim().toLocaleLowerCase();
+  const rows=state.items.filter(x=>x.type==='collectible')
+    .filter(x=>(!q||`${x.name||''} ${x.artist||''}`.toLocaleLowerCase().includes(q))&&(ui.category==='all'||x.category===ui.category));
+  const collectCats=state.categories.filter(c=>state.items.some(x=>x.type==='collectible'&&x.category===c.id));
+  return `<div class="wall-intro"><div><span class="eyebrow">MY COLLECTION</span><h2>追星封面牆</h2><p>專輯、周邊和願望清單，都放在你原本熟悉的封面牆裡。</p></div><button class="primary" onclick="App.editCollectible()">＋ 新增收藏</button></div>
+  <div class="tools"><input class="search" placeholder="搜尋收藏或藝人" value="${esc(ui.query)}" oninput="App.search(this.value)"></div>
+  <div class="chips"><button class="chip ${ui.category==='all'?'on':''}" onclick="App.filter('all')">全部</button>${collectCats.map(c=>`<button class="chip ${ui.category===c.id?'on':''}" onclick="App.filter('${c.id}')"><span style="background:${esc(c.color)}"></span>${esc(c.name)}</button>`).join('')}</div>
+  <div class="cover-wall">${rows.length?rows.map(renderCoverTile).join(''):'<div class="empty">這個分類還沒有收藏品</div>'}</div>`;
+}
+function renderCoverTile(item){
+  const cat=state.categories.find(c=>c.id===item.category)||{color:'#7a7684'};
+  const owned=item.status==='owned';
+  const image=item.cover?`<img src="${esc(item.cover)}" alt="${esc(item.name)}" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><div class="cover-placeholder" hidden style="color:${esc(cat.color)}">${esc((item.name||'?').slice(0,1))}</div>`:`<div class="cover-placeholder" style="color:${esc(cat.color)}">${esc((item.name||'?').slice(0,1))}</div>`;
+  return `<button class="cover-tile" onclick="App.editCollectible('${item.id}')"><div class="cover-image" style="background:${esc(cat.color)}18">${image}<span class="cover-flag ${owned?'owned':'wish'}">${owned?'✓ 已入手':'♡ 願望'}</span></div><div class="cover-caption"><b>${esc(item.name)}</b><span>${esc(item.artist||'')}${item.price?`${item.artist?'・':''}NT$ ${num(item.price).toLocaleString()}`:''}</span></div></button>`;
 }
 
 function renderModal(groups){
@@ -330,13 +364,15 @@ function collectibleForm(item){
     <input type="hidden" name="id" value="${esc(item.id||'')}"><div class="field full"><label>名稱 *</label><input name="name" required value="${esc(item.name||'')}"></div>
     <div class="field"><label>狀態</label><select name="status"><option value="wishlist" ${item.status==='wishlist'?'selected':''}>願望清單</option><option value="owned" ${item.status==='owned'?'selected':''}>已擁有</option></select></div>
     <div class="field"><label>價格</label><input name="price" type="number" min="0" value="${num(item.price)}"></div>
-    <div class="field"><label>藝人／品牌</label><input name="artist" value="${esc(item.artist||'')}"></div><div class="field"><label>備註</label><input name="note" value="${esc(item.note||'')}"></div>
+    <div class="field"><label>藝人／品牌</label><input name="artist" value="${esc(item.artist||'')}"></div><div class="field"><label>分類</label><select name="category">${state.categories.map(c=>`<option value="${esc(c.id)}" ${item.category===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
+    <div class="field full"><label>封面圖片網址</label><input name="cover" type="url" placeholder="https://…" value="${esc(item.cover||'')}"><span class="help">原本封面牆的圖片會完整保留，也可以在這裡更換。</span></div>
+    <div class="field full"><label>備註</label><input name="note" value="${esc(item.note||'')}"></div>
   </form>`,`<div class="sheetfoot">${item.id?`<button class="danger" onclick="App.deleteCollectible('${item.id}')">刪除</button>`:''}<button class="primary" onclick="document.getElementById('collectForm').requestSubmit()">儲存</button></div>`);
 }
 
 function formObject(form){return Object.fromEntries(new FormData(form).entries());}
 const App=window.App={
-  tab(tab){ui.tab=tab;ui.modal=null;requestRender();},
+  tab(tab){ui.tab=tab;ui.modal=null;ui.category='all';ui.query='';requestRender();},
   search(value){ui.query=value;requestRender();},
   filter(value){ui.category=value;requestRender();},
   close(event){if(event&&event.target!==event.currentTarget)return;ui.modal=null;requestRender();},
@@ -385,7 +421,7 @@ const App=window.App={
     const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');
     a.href=URL.createObjectURL(blob);a.download=`我的庫存櫃備份-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);
   },
-  editCollectible(id){const item=id?state.items.find(x=>x.id===id):{status:'wishlist',name:'',price:0};ui.modal={type:'collectible',item:clone(item)};requestRender();},
+  editCollectible(id){const item=id?state.items.find(x=>x.id===id):{status:'wishlist',name:'',price:0,category:'album',cover:''};ui.modal={type:'collectible',item:clone(item)};requestRender();},
   saveCollectible(event){event.preventDefault();const d=formObject(event.currentTarget),old=state.items.find(x=>x.id===d.id),item={...old,...d,id:d.id||uid(),type:'collectible',price:num(d.price),createdAt:old?.createdAt||Date.now()};mutate(()=>{state.items=old?state.items.map(x=>x.id===old.id?item:x):[item,...state.items];ui.modal=null;});},
   deleteCollectible(id){if(!confirm('確定刪除？'))return;mutate(()=>{state.items=state.items.filter(x=>x.id!==id);ui.modal=null;});}
 };

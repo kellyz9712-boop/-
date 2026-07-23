@@ -1,4 +1,4 @@
-const CACHE = 'kucun-v2.0.0-20260723';
+const CACHE = 'kucun-v2.1.0-20260723';
 const SHELL = ['./','./index.html','./styles.css','./app.js','./manifest.json','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 self.addEventListener('install', event => event.waitUntil(
   caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting())
