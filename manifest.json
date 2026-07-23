@@ -1,17 +1,16 @@
 {
-  "name": "我的庫存櫃",
+  "name": "我的庫存櫃 v2",
   "short_name": "庫存櫃",
-  "description": "備品、追星周邊、專輯收藏,一起管理。自動追蹤用量、提醒補貨、自動雲端同步。",
+  "description": "掌握家中庫存、使用週期與真正需要購買的品項。",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#F3F1EA",
-  "theme_color": "#E0614C",
+  "background_color": "#f6f3ed",
+  "theme_color": "#d85f49",
   "lang": "zh-Hant-TW",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {"src":"icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
   ]
 }
